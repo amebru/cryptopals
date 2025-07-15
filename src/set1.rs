@@ -1,7 +1,34 @@
-// use base64;
-use base64::{engine::general_purpose::STANDARD_NO_PAD as Base64Engine, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD as Base64Engine};
+use hex;
 use std::collections::HashMap;
-use distance::levenshtein;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::sync::OnceLock;
+
+static FREQ_MAP: OnceLock<HashMap<char, f32>> = OnceLock::new();
+
+pub fn english_monogram_frequency(letter: char) -> f32 {
+    let freq_map = FREQ_MAP.get_or_init(|| {
+        let mut map = HashMap::new();
+        let file = File::open("data/english_monograms.txt").expect("Cannot open monogram file");
+        let reader = BufReader::new(file);
+
+        for line in reader.lines() {
+            if let Ok(line) = line {
+                let parts: Vec<&str> = line.split(":").map(|x| x.trim()).collect();
+                if parts.len() == 2 {
+                    if let (Some(ch), Ok(freq)) = (parts[0].chars().next(), parts[1].parse::<f32>())
+                    {
+                        map.insert(ch, freq);
+                    }
+                }
+            }
+        }
+        map
+    });
+
+    return freq_map[&letter];
+}
 
 fn pad(s_bin: &str) -> String {
     // pad binary string to 4 digits
@@ -71,26 +98,33 @@ pub fn fixed_xor(s_hex: &str, t_hex: &str) -> String {
     return bin_to_hex(&r_bin);
 }
 
-fn frequency_sequence(text: &str) -> String {
-    let mut letters: Vec<char> = String::from("ABCDEFGHIJKLMNOPQRSTUVWXYZ").chars().collect();
-    let frequencies: Vec<f32> = letters.clone().into_iter()
-        .map(|letter| text.matches(letter).count() as f32 / text.len() as f32)
-        .collect();
-    let map: HashMap<char, f32> = letters.clone().into_iter()
-        .zip(frequencies)
-        .collect::<Vec::<(char, f32)>>()
-        .iter()
-        .cloned()
-        .collect();
-    letters.sort_by(|a, b| map[b].partial_cmp(&map[a]).unwrap());
-    return letters.into_iter().collect();
+pub fn distance(text: &str) -> usize {
+    let distance: f32 = String::from("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+        .chars()
+        .map(|letter| {
+            (english_monogram_frequency(letter)
+                - text.to_uppercase().matches(letter).count() as f32 / text.len() as f32)
+                .abs()
+        })
+        .sum();
+    return (distance * 100.) as usize;
 }
 
-pub fn score(text: &str) -> usize {
-    let golden_frequency_sequence = String::from("ETAONRISHDLFCMUGYPWBVKJXZQ");
-    let actual_frequency_sequence = frequency_sequence(&text.to_uppercase());
-    println!("{}", golden_frequency_sequence);
-    println!("{}", actual_frequency_sequence);
-    let distance = 26 as usize - levenshtein(&golden_frequency_sequence, &actual_frequency_sequence);
-    return distance;
+fn decrypt_with_single_character_cypher(encrypted_text: &str, cypher: char) -> String {
+    let hex_cypher = format!("{:x}", cypher as u32).repeat(encrypted_text.len() / 2);
+    return fixed_xor(encrypted_text, &hex_cypher);
+}
+
+pub fn brute_force_single_character_xor(encrypted_text: &str) -> String {
+    let characters: Vec<char> = (32..=126).map(|i| i as u8 as char).collect();
+    let cypher: char = characters
+        .into_iter()
+        .min_by_key(|cypher| {
+            let decrypted_text_hex = decrypt_with_single_character_cypher(encrypted_text, *cypher);
+            let decrypted_text =
+                String::from_utf8(hex::decode(decrypted_text_hex).unwrap()).unwrap();
+            return distance(&decrypted_text);
+        })
+        .unwrap();
+    return decrypt_with_single_character_cypher(encrypted_text, cypher);
 }
