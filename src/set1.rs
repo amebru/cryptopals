@@ -30,72 +30,43 @@ pub fn english_monogram_frequency(letter: char) -> f32 {
     return freq_map[&letter];
 }
 
-fn pad(s_bin: &str) -> String {
-    // pad binary string to 4 digits
-    return String::from("0").repeat(4 - s_bin.len()) + s_bin;
-}
-
-fn hex_to_bin(s_hex: &str) -> String {
-    return s_hex
-        .chars()
-        .map(|hex_digit| pad(&format!("{:b}", hex_digit.to_digit(16).unwrap())))
+pub fn hex_to_bin(s_hex: &str) -> Vec<u8> {
+    return (0..s_hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s_hex[i..i + 2], 16).unwrap())
         .collect();
 }
 
-fn bin_to_hex(s_bin: &str) -> String {
-    return (0..s_bin.len())
-        .step_by(4)
-        .map(|i| i16::from_str_radix(&s_bin[i..i + 4], 2).unwrap())
-        .map(|n| format!("{:x}", n))
+pub fn bin_to_hex(s_bin: &Vec<u8>) -> String {
+    return s_bin
+        .into_iter()
+        .map(|byte| format!("{:x}", byte))
         .collect();
 }
 
 pub fn hex_to_base64(s_hex: &str) -> String {
     // convert utf-8 hex encoding to base64 encoding
 
-    fn strip_leading_zeroes(bytes: &[u8]) -> &[u8] {
-        // strip leading zeroes from byte array
-        return bytes
-            .iter()
-            .position(|&b| b != 0)
-            .map(|pos| &bytes[pos..])
-            .unwrap_or(&bytes[bytes.len() - 1..]); // keep at least 1 byte
-    }
-
-    let s_b64: String = (0..s_hex.len())
-        .step_by(3)
-        .map(|i| &s_hex[i..i + 3]) // -> 3-digit strings
-        .map(|three_digits_hex: &str| hex_to_bin(three_digits_hex)) // --> 12-digit
-        // binary strings
-        .map(|twelve_digits_bin: String| {
-            (0..twelve_digits_bin.len())
-                .step_by(6)
-                .map(|j| u8::from_str_radix(&twelve_digits_bin[j..j + 6], 2).unwrap() << 2)
-                .collect()
-        }) // --> integer pairs for each 6-digit binary string slice
-        .map(|two_integers: Vec<u8>| {
-            two_integers
-                .iter()
-                .map(|n| {
-                    Base64Engine.encode(strip_leading_zeroes(&(n.to_be_bytes())))[0..1].to_owned()
-                })
-                .collect::<String>()
-        }) // --> b64 digit pairs concatenated into Strings
-        .collect(); // --> concatenate all the b64 digit Strings
-
-    return s_b64;
+    return (0..s_hex.len())
+        .step_by(6)
+        .map(|i| {
+            if i + 6 <= s_hex.len() {
+                &s_hex[i..i + 6]
+            } else {
+                &s_hex[i..]
+            }
+        })
+        .map(|three_bytes_hex| Base64Engine.encode(hex_to_bin(three_bytes_hex)))
+        .collect();
 }
 
-pub fn fixed_xor(s_hex: &str, t_hex: &str) -> String {
-    assert_eq!(s_hex.len(), t_hex.len());
-    let (s_bin, t_bin): (String, String) = (hex_to_bin(s_hex), hex_to_bin(t_hex));
-    let r_bin: String = s_bin
-        .chars()
-        .zip(t_bin.chars())
-        .map(|(s, t): (char, char)| (s.to_digit(2).unwrap() as u8) ^ (t.to_digit(2).unwrap() as u8))
-        .map(|d: u8| format!("{:b}", d))
+pub fn fixed_xor(s_bin: &Vec<u8>, t_bin: &Vec<u8>) -> Vec<u8> {
+    assert_eq!(s_bin.len(), t_bin.len());
+    return s_bin
+        .into_iter()
+        .zip(t_bin.into_iter())
+        .map(|(s, t)| s ^ t)
         .collect();
-    return bin_to_hex(&r_bin);
 }
 
 pub fn distance(text: &str) -> usize {
@@ -110,21 +81,38 @@ pub fn distance(text: &str) -> usize {
     return (distance * 100.) as usize;
 }
 
-fn decrypt_with_single_character_cypher(encrypted_text: &str, cypher: char) -> String {
-    let hex_cypher = format!("{:x}", cypher as u32).repeat(encrypted_text.len() / 2);
-    return fixed_xor(encrypted_text, &hex_cypher);
+fn decrypt_with_single_character_cypher(encrypted_bin: &Vec<u8>, cypher: u8) -> Vec<u8> {
+    // let hex_cypher = format!("{:x}", cypher as u32).repeat(encrypted_text.len() / 2);
+    let equal_length_cypher: Vec<u8> = (0..encrypted_bin.len()).map(|_| cypher).collect();
+    return fixed_xor(&encrypted_bin, &equal_length_cypher);
 }
 
-pub fn brute_force_single_character_xor(encrypted_text: &str) -> String {
+pub fn brute_force_single_character_xor(encrypted_bin: &Vec<u8>) -> Vec<u8> {
     let characters: Vec<char> = (32..=126).map(|i| i as u8 as char).collect();
     let cypher: char = characters
         .into_iter()
         .min_by_key(|cypher| {
-            let decrypted_text_hex = decrypt_with_single_character_cypher(encrypted_text, *cypher);
-            let decrypted_text =
-                String::from_utf8(hex::decode(decrypted_text_hex).unwrap()).unwrap();
-            return distance(&decrypted_text);
+            let decrypted_bin = decrypt_with_single_character_cypher(encrypted_bin, *cypher as u8);
+            match String::from_utf8(decrypted_bin) {
+                Ok(decrypted_text_utf8) => distance(&decrypted_text_utf8),
+                Err(_) => usize::MAX,
+            }
         })
         .unwrap();
-    return decrypt_with_single_character_cypher(encrypted_text, cypher);
+    return decrypt_with_single_character_cypher(encrypted_bin, cypher as u8);
+}
+
+pub fn detect_single_character_xor(texts_bin: &Vec<Vec<u8>>) -> Vec<u8> {
+    // find the string which was encrypted with single character xor and return
+    // it unencrypted
+    return texts_bin
+        .into_iter()
+        .map(|text| brute_force_single_character_xor(text))
+        .min_by_key(
+            |decrypted_bin| match String::from_utf8(decrypted_bin.to_vec()) {
+                Ok(decrypted_bin_utf8) => distance(&decrypted_bin_utf8),
+                Err(_) => usize::MAX,
+            },
+        )
+        .unwrap();
 }

@@ -10,21 +10,29 @@ fn main() {
     );
 
     println!(
-        "{}",
-        set1::fixed_xor(
-            &"1c0111001f010100061a024b53535009181c",
-            &"686974207468652062756c6c277320657965",
-        )
+        "{:?}",
+        set1::bin_to_hex(&set1::fixed_xor(
+            &set1::hex_to_bin(&"1c0111001f010100061a024b53535009181c"),
+            &set1::hex_to_bin(&"686974207468652062756c6c277320657965"),
+        ))
     );
 
     println!(
         "{}",
-        String::from_utf8(
-            hex::decode(set1::brute_force_single_character_xor(
-                &"1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736",
-            ))
-            .unwrap()
-        )
+        String::from_utf8(set1::brute_force_single_character_xor(&set1::hex_to_bin(
+            &"1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736"
+        )))
         .unwrap()
+    );
+
+    let text = std::fs::read_to_string("data/4.txt").expect("Failed to read file");
+    let texts: Vec<&str> = text.lines().collect();
+    let texts_bin: Vec<Vec<u8>> = texts
+        .into_iter()
+        .map(|text| set1::hex_to_bin(text))
+        .collect();
+    println!(
+        "{}",
+        String::from_utf8(set1::detect_single_character_xor(&texts_bin)).unwrap()
     );
 }
