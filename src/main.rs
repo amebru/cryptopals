@@ -1,5 +1,4 @@
 mod set1;
-use hex;
 
 fn main() {
     println!(

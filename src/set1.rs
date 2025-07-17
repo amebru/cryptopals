@@ -1,13 +1,13 @@
 use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD as Base64Engine};
-use hex;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::sync::OnceLock;
 
-static FREQ_MAP: OnceLock<HashMap<char, f32>> = OnceLock::new();
+static FREQ_MAP: OnceLock<HashMap<char, f64>> = OnceLock::new();
 
-pub fn english_monogram_frequency(letter: char) -> f32 {
+pub fn english_monogram_frequency(letter: char) -> f64 {
     let freq_map = FREQ_MAP.get_or_init(|| {
         let mut map = HashMap::new();
         let file = File::open("data/english_monograms.txt").expect("Cannot open monogram file");
@@ -17,7 +17,7 @@ pub fn english_monogram_frequency(letter: char) -> f32 {
             if let Ok(line) = line {
                 let parts: Vec<&str> = line.split(":").map(|x| x.trim()).collect();
                 if parts.len() == 2 {
-                    if let (Some(ch), Ok(freq)) = (parts[0].chars().next(), parts[1].parse::<f32>())
+                    if let (Some(ch), Ok(freq)) = (parts[0].chars().next(), parts[1].parse::<f64>())
                     {
                         map.insert(ch, freq);
                     }
@@ -70,14 +70,31 @@ pub fn fixed_xor(s_bin: &Vec<u8>, t_bin: &Vec<u8>) -> Vec<u8> {
 }
 
 pub fn distance(text: &str) -> usize {
-    let distance: f32 = String::from("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
-        .chars()
+    let characters: HashSet<char> = String::from("ABCDEFGHIJKLMNOPQRSTUVWXYZ").chars().collect();
+    let text = text.to_uppercase();
+
+    // compute distance as the sum of the differences between the real frequencies
+    // over the text and the English monogram frequencies over the English alphabet
+    let mut distance: f64 = characters
+        .clone()
+        .into_iter()
         .map(|letter| {
             (english_monogram_frequency(letter)
-                - text.to_uppercase().matches(letter).count() as f32 / text.len() as f32)
+                - text.matches(letter).count() as f64 / text.len() as f64)
                 .abs()
         })
         .sum();
+
+    // add the count of unknown characters (characters which are not English letters
+    // or spaces) to the distance
+    let mut text_characters: HashSet<char> = text.chars().collect();
+    text_characters.remove(&' ');
+    distance += text_characters
+        .symmetric_difference(&characters)
+        .collect::<HashSet<&char>>()
+        .len() as f64;
+
+    // convert and normalize by multiplying by 100 for precision
     return (distance * 100.) as usize;
 }
 
