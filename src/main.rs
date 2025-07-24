@@ -34,4 +34,12 @@ fn main() {
         "{}",
         String::from_utf8(set1::detect_single_character_xor(&texts_bin)).unwrap()
     );
+
+    let text = std::fs::read_to_string("data/5.txt").expect("Failed to read file");
+    let text_bin: Vec<u8> = set1::plaintext_to_bin(&text);
+    let cypher: Vec<u8> = set1::plaintext_to_bin(&"ICE");
+    println!(
+        "{}",
+        set1::bin_to_hex(&set1::decrypt_with_repeating_key_xor(&text_bin, &cypher))
+    );
 }

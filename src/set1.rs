@@ -44,6 +44,10 @@ pub fn bin_to_hex(s_bin: &Vec<u8>) -> String {
         .collect();
 }
 
+pub fn plaintext_to_bin(s_bin: &str) -> Vec<u8> {
+    return s_bin.chars().map(|c| c as u8).collect();
+}
+
 pub fn hex_to_base64(s_hex: &str) -> String {
     // convert utf-8 hex encoding to base64 encoding
 
@@ -99,8 +103,17 @@ pub fn distance(text: &str) -> usize {
 }
 
 fn decrypt_with_single_character_cypher(encrypted_bin: &Vec<u8>, cypher: u8) -> Vec<u8> {
-    // let hex_cypher = format!("{:x}", cypher as u32).repeat(encrypted_text.len() / 2);
     let equal_length_cypher: Vec<u8> = (0..encrypted_bin.len()).map(|_| cypher).collect();
+    return fixed_xor(&encrypted_bin, &equal_length_cypher);
+}
+
+pub fn decrypt_with_repeating_key_xor(encrypted_bin: &Vec<u8>, cypher: &Vec<u8>) -> Vec<u8> {
+    let equal_length_cypher: Vec<u8> = cypher
+        .iter()
+        .cloned()
+        .cycle()
+        .take(encrypted_bin.len())
+        .collect();
     return fixed_xor(&encrypted_bin, &equal_length_cypher);
 }
 
