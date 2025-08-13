@@ -1,4 +1,4 @@
-use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD as Base64Engine};
+use base64::prelude::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs::File;
@@ -49,19 +49,7 @@ pub fn plaintext_to_bin(s_bin: &str) -> Vec<u8> {
 }
 
 pub fn hex_to_base64(s_hex: &str) -> String {
-    // convert utf-8 hex encoding to base64 encoding
-
-    return (0..s_hex.len())
-        .step_by(6)
-        .map(|i| {
-            if i + 6 <= s_hex.len() {
-                &s_hex[i..i + 6]
-            } else {
-                &s_hex[i..]
-            }
-        })
-        .map(|three_bytes_hex| Base64Engine.encode(hex_to_bin(three_bytes_hex)))
-        .collect();
+    return BASE64_STANDARD.encode(hex_to_bin(s_hex));
 }
 
 pub fn fixed_xor(s_bin: &[u8], t_bin: &[u8]) -> Vec<u8> {
@@ -176,16 +164,27 @@ pub fn hamming_distance(a: &[u8], b: &[u8]) -> usize {
 }
 
 pub fn break_repeating_key_xor(encrypted_bin: &Vec<u8>) -> (Vec<u8>, Vec<u8>) {
-    let mut keysizes: Vec<usize> = (2..40)
-        .map(|ks| hamming_distance(&encrypted_bin[..ks], &encrypted_bin[ks..2 * ks]) / ks)
-        .collect();
-    keysizes.sort();
-    keysizes.reverse();
-    let mut decrypted_bin: Vec<u8> = vec![];
-    let mut cypher: Vec<u8> = vec![];
-    for ks in keysizes {
-        let blocks: Vec<&[u8]> = encrypted_bin.chunks(ks).collect();
-        let transposed_blocks: Vec<Vec<u8>> = (0..ks)
+    let mut keysizes: Vec<usize> = (2..=40).collect();
+
+    let keysize_distance = |ks: &usize| {
+        (2..=4)
+            .map(|i| {
+                ((hamming_distance(
+                    &encrypted_bin[..*ks],
+                    &encrypted_bin[(i - 1) * (*ks)..i * (*ks)],
+                ) as f64
+                    / *ks as f64)
+                    * 100.) as usize
+            })
+            .sum::<usize>()
+            / 4
+    };
+
+    keysizes.sort_by_key(keysize_distance);
+
+    let make_cypher = |ks: &usize| -> Vec<u8> {
+        let blocks: Vec<&[u8]> = encrypted_bin.chunks(*ks).collect();
+        let transposed_blocks: Vec<Vec<u8>> = (0..*ks)
             .map(|i| {
                 blocks
                     .iter()
@@ -198,25 +197,23 @@ pub fn break_repeating_key_xor(encrypted_bin: &Vec<u8>) -> (Vec<u8>, Vec<u8>) {
             .into_iter()
             .map(|block| brute_force_single_character_xor(&block))
             .collect();
-        let candidate_cypher: Vec<u8> = solved_transposed_blocks
+        return solved_transposed_blocks
             .into_iter()
             .map(|(_, key)| key)
             .collect();
-        let candidate_decrypted_bin =
-            decrypt_with_repeating_key_xor(&encrypted_bin, &candidate_cypher);
-        match String::from_utf8(candidate_decrypted_bin.clone()) {
-            Ok(candidate_decrypted_str) => {
-                if decrypted_bin.is_empty()
-                    || distance(&candidate_decrypted_str)
-                        < distance(&String::from_utf8(decrypted_bin.clone()).unwrap_or_default())
-                {
-                    decrypted_bin = candidate_decrypted_bin;
-                    cypher = candidate_cypher;
-                }
-            }
-            Err(_) => {}
+    };
+
+    let cyphers: Vec<Vec<u8>> = keysizes[..3].into_iter().map(make_cypher).collect();
+
+    let cypher_distance = |cypher: &Vec<u8>| -> usize {
+        match String::from_utf8(decrypt_with_repeating_key_xor(&encrypted_bin, cypher)) {
+            Ok(decrypted_str) => distance(&decrypted_str),
+            Err(_) => usize::MAX,
         }
-    }
+    };
+
+    let cypher: Vec<u8> = cyphers.into_iter().min_by_key(cypher_distance).unwrap();
+    let decrypted_bin: Vec<u8> = decrypt_with_repeating_key_xor(&encrypted_bin, &cypher);
 
     return (decrypted_bin, cypher);
 }

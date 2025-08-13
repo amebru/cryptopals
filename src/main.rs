@@ -1,5 +1,5 @@
 mod set1;
-use base64::{Engine, engine::general_purpose::STANDARD as Base64Engine};
+use base64::prelude::*;
 
 fn main() {
     println!(
@@ -53,11 +53,15 @@ fn main() {
             &set1::plaintext_to_bin(&"wokka wokka!!!")
         )
     );
-    let whitespace = ['\n', '\r', ' '];
-    let text = std::fs::read_to_string("data/6.txt")
+    let text: String = std::fs::read_to_string("data/6.txt")
         .expect("Failed to read file")
-        .replace(&whitespace, "");
-    let text_bin = Base64Engine.decode(text).unwrap();
+        .lines()
+        .collect();
+    let text_bin = BASE64_STANDARD.decode(text).unwrap();
+    // println!("{:?}", text_bin);
+    // for bin in &text_bin {
+    //     print!("{:b}", bin);
+    // }
     let (decrypted_text_bin, _) = set1::break_repeating_key_xor(&text_bin);
     println!("{}", String::from_utf8(decrypted_text_bin).unwrap());
 }
