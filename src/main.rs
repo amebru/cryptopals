@@ -10,7 +10,7 @@ fn main() {
     );
 
     println!(
-        "{:?}",
+        "{}",
         set1::bin_to_hex(&set1::fixed_xor(
             &set1::hex_to_bin(&"1c0111001f010100061a024b53535009181c"),
             &set1::hex_to_bin(&"686974207468652062756c6c277320657965"),

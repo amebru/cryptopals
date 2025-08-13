@@ -107,23 +107,20 @@ pub fn decrypt_with_repeating_key_xor(encrypted_bin: &[u8], cypher: &[u8]) -> Ve
 
 pub fn brute_force_single_character_xor(encrypted_bin: &[u8]) -> (Vec<u8>, u8) {
     let characters: Vec<char> = (32..=126).map(|i| i as u8 as char).collect();
-    let decrypteds: Vec<Vec<u8>> = characters
-        .clone()
-        .into_iter()
-        .map(|c| decrypt_with_single_character_cypher(encrypted_bin, c as u8))
-        .collect();
-    let distances: Vec<usize> = decrypteds
-        .into_iter()
-        .map(|v| match String::from_utf8(v) {
+
+    let character_distance = |c: &char| -> usize {
+        let decrypted: Vec<u8> = decrypt_with_single_character_cypher(encrypted_bin, *c as u8);
+        return match String::from_utf8(decrypted) {
             Ok(s) => distance(&s),
             Err(_) => usize::MAX,
-        })
-        .collect();
-    let (cypher, _) = characters
+        };
+    };
+
+    let cypher = characters
         .into_iter()
-        .zip(distances)
-        .min_by_key(|(_, d)| *d)
+        .min_by_key(character_distance)
         .unwrap();
+
     return (
         decrypt_with_single_character_cypher(encrypted_bin, cypher as u8),
         cypher as u8,
