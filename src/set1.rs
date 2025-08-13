@@ -37,7 +37,7 @@ pub fn hex_to_bin(s_hex: &str) -> Vec<u8> {
         .collect();
 }
 
-pub fn bin_to_hex(s_bin: &Vec<u8>) -> String {
+pub fn bin_to_hex(s_bin: &[u8]) -> String {
     return s_bin
         .into_iter()
         .map(|byte| format!("{:x}", byte))
@@ -64,7 +64,7 @@ pub fn hex_to_base64(s_hex: &str) -> String {
         .collect();
 }
 
-pub fn fixed_xor(s_bin: &Vec<u8>, t_bin: &Vec<u8>) -> Vec<u8> {
+pub fn fixed_xor(s_bin: &[u8], t_bin: &[u8]) -> Vec<u8> {
     assert_eq!(s_bin.len(), t_bin.len());
     return s_bin
         .into_iter()
@@ -102,12 +102,12 @@ pub fn distance(text: &str) -> usize {
     return (distance * 100.) as usize;
 }
 
-fn decrypt_with_single_character_cypher(encrypted_bin: &Vec<u8>, cypher: u8) -> Vec<u8> {
+fn decrypt_with_single_character_cypher(encrypted_bin: &[u8], cypher: u8) -> Vec<u8> {
     let equal_length_cypher: Vec<u8> = (0..encrypted_bin.len()).map(|_| cypher).collect();
     return fixed_xor(&encrypted_bin, &equal_length_cypher);
 }
 
-pub fn decrypt_with_repeating_key_xor(encrypted_bin: &Vec<u8>, cypher: &Vec<u8>) -> Vec<u8> {
+pub fn decrypt_with_repeating_key_xor(encrypted_bin: &[u8], cypher: &[u8]) -> Vec<u8> {
     let equal_length_cypher: Vec<u8> = cypher
         .iter()
         .cloned()
@@ -117,27 +117,37 @@ pub fn decrypt_with_repeating_key_xor(encrypted_bin: &Vec<u8>, cypher: &Vec<u8>)
     return fixed_xor(&encrypted_bin, &equal_length_cypher);
 }
 
-pub fn brute_force_single_character_xor(encrypted_bin: &Vec<u8>) -> Vec<u8> {
+pub fn brute_force_single_character_xor(encrypted_bin: &[u8]) -> (Vec<u8>, u8) {
     let characters: Vec<char> = (32..=126).map(|i| i as u8 as char).collect();
-    let cypher: char = characters
+    let decrypteds: Vec<Vec<u8>> = characters
+        .clone()
         .into_iter()
-        .min_by_key(|cypher| {
-            let decrypted_bin = decrypt_with_single_character_cypher(encrypted_bin, *cypher as u8);
-            match String::from_utf8(decrypted_bin) {
-                Ok(decrypted_text_utf8) => distance(&decrypted_text_utf8),
-                Err(_) => usize::MAX,
-            }
+        .map(|c| decrypt_with_single_character_cypher(encrypted_bin, c as u8))
+        .collect();
+    let distances: Vec<usize> = decrypteds
+        .into_iter()
+        .map(|v| match String::from_utf8(v) {
+            Ok(s) => distance(&s),
+            Err(_) => usize::MAX,
         })
+        .collect();
+    let (cypher, _) = characters
+        .into_iter()
+        .zip(distances)
+        .min_by_key(|(_, d)| *d)
         .unwrap();
-    return decrypt_with_single_character_cypher(encrypted_bin, cypher as u8);
+    return (
+        decrypt_with_single_character_cypher(encrypted_bin, cypher as u8),
+        cypher as u8,
+    );
 }
 
-pub fn detect_single_character_xor(texts_bin: &Vec<Vec<u8>>) -> Vec<u8> {
+pub fn detect_single_character_xor(texts_bin: &[&[u8]]) -> Vec<u8> {
     // find the string which was encrypted with single character xor and return
     // it unencrypted
     return texts_bin
         .into_iter()
-        .map(|text| brute_force_single_character_xor(text))
+        .map(|text| brute_force_single_character_xor(*text).0)
         .min_by_key(
             |decrypted_bin| match String::from_utf8(decrypted_bin.to_vec()) {
                 Ok(decrypted_bin_utf8) => distance(&decrypted_bin_utf8),
@@ -145,4 +155,68 @@ pub fn detect_single_character_xor(texts_bin: &Vec<Vec<u8>>) -> Vec<u8> {
             },
         )
         .unwrap();
+}
+
+pub fn hamming_distance(a: &[u8], b: &[u8]) -> usize {
+    let a_bits: String = a
+        .iter()
+        .map(|byte| format!("{:b}", byte))
+        .map(|bits| "0".repeat(8 - bits.len()) + &bits)
+        .collect();
+    let b_bits: String = b
+        .iter()
+        .map(|byte| format!("{:b}", byte))
+        .map(|bits| "0".repeat(8 - bits.len()) + &bits)
+        .collect();
+    return a_bits
+        .chars()
+        .zip(b_bits.chars())
+        .map(|(bit_a, bit_b)| (bit_a != bit_b) as usize)
+        .sum();
+}
+
+pub fn break_repeating_key_xor(encrypted_bin: &Vec<u8>) -> (Vec<u8>, Vec<u8>) {
+    let mut keysizes: Vec<usize> = (2..40)
+        .map(|ks| hamming_distance(&encrypted_bin[..ks], &encrypted_bin[ks..2 * ks]) / ks)
+        .collect();
+    keysizes.sort();
+    keysizes.reverse();
+    let mut decrypted_bin: Vec<u8> = vec![];
+    let mut cypher: Vec<u8> = vec![];
+    for ks in keysizes {
+        let blocks: Vec<&[u8]> = encrypted_bin.chunks(ks).collect();
+        let transposed_blocks: Vec<Vec<u8>> = (0..ks)
+            .map(|i| {
+                blocks
+                    .iter()
+                    .filter(|b| b.len() > i)
+                    .map(|b| b[i])
+                    .collect()
+            })
+            .collect();
+        let solved_transposed_blocks: Vec<(Vec<u8>, u8)> = transposed_blocks
+            .into_iter()
+            .map(|block| brute_force_single_character_xor(&block))
+            .collect();
+        let candidate_cypher: Vec<u8> = solved_transposed_blocks
+            .into_iter()
+            .map(|(_, key)| key)
+            .collect();
+        let candidate_decrypted_bin =
+            decrypt_with_repeating_key_xor(&encrypted_bin, &candidate_cypher);
+        match String::from_utf8(candidate_decrypted_bin.clone()) {
+            Ok(candidate_decrypted_str) => {
+                if decrypted_bin.is_empty()
+                    || distance(&candidate_decrypted_str)
+                        < distance(&String::from_utf8(decrypted_bin.clone()).unwrap_or_default())
+                {
+                    decrypted_bin = candidate_decrypted_bin;
+                    cypher = candidate_cypher;
+                }
+            }
+            Err(_) => {}
+        }
+    }
+
+    return (decrypted_bin, cypher);
 }
